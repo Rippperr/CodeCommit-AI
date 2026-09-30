@@ -150,3 +150,4 @@ Code Intelligence
 
 &#x20;     +-- Impact Analysis
 
+Incremental indexing test.
