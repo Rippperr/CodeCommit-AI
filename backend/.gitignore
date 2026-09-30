@@ -1,0 +1,22 @@
+# Environment / secrets
+.env
+.env.*
+!.env.example
+
+# Local application configuration
+backend/src/main/resources/application.properties
+
+# Maven build output
+backend/target/
+
+# Generated/debug files
+backend/build-error.txt
+
+# IDE
+.idea/
+.vscode/
+*.iml
+
+# OS
+.DS_Store
+Thumbs.db

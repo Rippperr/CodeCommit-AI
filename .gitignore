@@ -1,0 +1,86 @@
+# ==============================
+# Java / Maven
+# ==============================
+target/
+*.class
+*.jar
+
+# ==============================
+# IntelliJ IDEA
+# ==============================
+.idea/
+*.iml
+*.iws
+*.ipr
+out/
+
+# ==============================
+# VS Code
+# ==============================
+.vscode/
+
+# ==============================
+# Node / React
+# ==============================
+node_modules/
+dist/
+build/
+.npm/
+
+# ==============================
+# Environment Variables / Secrets
+# ==============================
+.env
+.env.*
+!.env.example
+
+# ==============================
+# Logs
+# ==============================
+*.log
+
+# ==============================
+# OS
+# ==============================
+.DS_Store
+Thumbs.db
+
+# ==============================
+# Temporary Files
+# ==============================
+*.tmp
+*.temp
+
+# ==============================
+# Coverage
+# ==============================
+coverage/
+
+# ==============================
+# Spring Boot
+# ==============================
+spring.log
+
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+
+# Local application configuration
+backend/src/main/resources/application.properties
+
+# Maven build output
+backend/target/
+
+# Generated/debug files
+backend/build-error.txt
+
+# IDE
+.idea/
+.vscode/
+*.iml
+
+# OS
+.DS_Store
+Thumbs.db
