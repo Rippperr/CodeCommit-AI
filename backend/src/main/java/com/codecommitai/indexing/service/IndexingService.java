@@ -63,8 +63,7 @@ public class IndexingService {
                 repositoryRepository.findById(repositoryId)
                         .orElseThrow(() ->
                                 new IllegalArgumentException(
-                                        "Repository not found: "
-                                                + repositoryId
+                                        "Repository not found: " + repositoryId
                                 )
                         );
 
@@ -72,6 +71,10 @@ public class IndexingService {
 
         job.setRepository(repository);
         job.setStatus(STATUS_PENDING);
+        job.setTotalFiles(0);
+        job.setProcessedFiles(0);
+        job.setTotalChunks(0);
+        job.setProcessedChunks(0);
 
         return indexingJobRepository.save(job);
     }
@@ -88,17 +91,16 @@ public class IndexingService {
                     job.getRepository().getId();
 
             /*
-             * Discover the current GitHub tree and classify files into:
+             * Discover the current GitHub state.
              *
-             * NEW
-             * MODIFIED
-             * UNCHANGED
-             * DELETED
+             * githubSha remains the SHA of the last successfully
+             * indexed version.
+             *
+             * New GitHub SHAs are stored only in pendingGithubSha.
              */
             RepositoryFileChangeSet changeSet =
-                    repositoryFileService.discoverFilesWithChanges(
-                            repositoryId
-                    );
+                    repositoryFileService
+                            .discoverFilesWithChanges(repositoryId);
 
             List<RepositoryFile> filesToProcess =
                     new ArrayList<>();
@@ -106,10 +108,6 @@ public class IndexingService {
             filesToProcess.addAll(changeSet.newFiles());
             filesToProcess.addAll(changeSet.modifiedFiles());
 
-            /*
-             * Total file count represents the current repository state,
-             * including files that were unchanged.
-             */
             int totalFiles =
                     changeSet.totalFiles();
 
@@ -119,10 +117,10 @@ public class IndexingService {
             );
 
             /*
-             * Remove files that no longer exist in GitHub.
+             * Delete repository files that disappeared from GitHub.
              *
-             * repository_files -> code_chunks -> embeddings
-             * are connected using ON DELETE CASCADE.
+             * Database cascade relationships handle the associated
+             * chunks/embeddings according to the configured schema.
              */
             for (RepositoryFile deletedFile :
                     changeSet.deletedFiles()) {
@@ -133,7 +131,7 @@ public class IndexingService {
             repositoryFileRepository.flush();
 
             /*
-             * Download content only for new and modified files.
+             * Download content using pendingGithubSha.
              */
             if (!filesToProcess.isEmpty()) {
 
@@ -144,13 +142,12 @@ public class IndexingService {
             }
 
             /*
-             * Chunk only new and modified files.
-             *
-             * Unchanged files keep their existing chunks.
+             * Recreate chunks for every new/modified file.
              */
             int totalChunks = 0;
 
-            for (RepositoryFile file : filesToProcess) {
+            for (RepositoryFile file :
+                    filesToProcess) {
 
                 totalChunks +=
                         codeChunkService.chunkFile(
@@ -164,12 +161,12 @@ public class IndexingService {
             );
 
             /*
-             * Generate embeddings only for chunks belonging to
-             * new/modified files.
+             * Generate embeddings for the newly created chunks.
              */
             int embeddingsGenerated = 0;
 
-            for (RepositoryFile file : filesToProcess) {
+            for (RepositoryFile file :
+                    filesToProcess) {
 
                 List<CodeChunk> chunks =
                         codeChunkService.getChunksForFile(
@@ -187,10 +184,19 @@ public class IndexingService {
             }
 
             /*
-             * All current files are considered processed from the
-             * indexing job's perspective. Deleted files are no longer
-             * part of the repository.
+             * CRITICAL:
+             *
+             * Only after content download, chunking and embedding
+             * generation have all succeeded do we commit the newly
+             * discovered GitHub SHAs.
+             *
+             * If anything above fails, githubSha remains unchanged
+             * and the next indexing run will retry the file.
              */
+            repositoryFileService.markFilesAsIndexed(
+                    filesToProcess
+            );
+
             return jobStateService.markCompleted(
                     jobId,
                     totalFiles,
@@ -215,8 +221,7 @@ public class IndexingService {
         return indexingJobRepository.findById(jobId)
                 .orElseThrow(() ->
                         new IllegalArgumentException(
-                                "Indexing job not found: "
-                                        + jobId
+                                "Indexing job not found: " + jobId
                         )
                 );
     }
@@ -225,13 +230,6 @@ public class IndexingService {
     public List<IndexingJob> getRepositoryJobs(
             UUID repositoryId
     ) {
-
-        if (!repositoryRepository.existsById(repositoryId)) {
-            throw new IllegalArgumentException(
-                    "Repository not found: "
-                            + repositoryId
-            );
-        }
 
         return indexingJobRepository
                 .findAllByRepositoryIdOrderByCreatedAtDesc(

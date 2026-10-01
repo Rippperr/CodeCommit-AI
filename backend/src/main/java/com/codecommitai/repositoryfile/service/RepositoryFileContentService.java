@@ -31,53 +31,38 @@ public class RepositoryFileContentService {
         this.gitHubService = gitHubService;
     }
 
-    /**
-     * Downloads content for all files in a repository.
-     *
-     * Kept for compatibility with the existing API.
-     */
     @Transactional
     public int downloadContents(UUID repositoryId) {
 
-        Repository repository = repositoryRepository
-                .findById(repositoryId)
-                .orElseThrow(() -> new IllegalArgumentException(
-                        "Repository not found: " + repositoryId
-                ));
+        Repository repository =
+                repositoryRepository.findById(repositoryId)
+                        .orElseThrow(() ->
+                                new IllegalArgumentException(
+                                        "Repository not found: " + repositoryId
+                                )
+                        );
 
         List<RepositoryFile> files =
-                repositoryFileRepository.findAllByRepositoryId(
-                        repositoryId
-                );
+                repositoryFileRepository.findAllByRepositoryId(repositoryId);
 
-        return downloadContents(
-                repository,
-                files
-        );
+        return downloadContents(repository, files);
     }
 
-    /**
-     * Downloads content only for the supplied files.
-     *
-     * This is used by incremental indexing so unchanged files
-     * are not downloaded again.
-     */
     @Transactional
     public int downloadContents(
             UUID repositoryId,
             List<RepositoryFile> files
     ) {
 
-        Repository repository = repositoryRepository
-                .findById(repositoryId)
-                .orElseThrow(() -> new IllegalArgumentException(
-                        "Repository not found: " + repositoryId
-                ));
+        Repository repository =
+                repositoryRepository.findById(repositoryId)
+                        .orElseThrow(() ->
+                                new IllegalArgumentException(
+                                        "Repository not found: " + repositoryId
+                                )
+                        );
 
-        return downloadContents(
-                repository,
-                files
-        );
+        return downloadContents(repository, files);
     }
 
     private int downloadContents(
@@ -87,10 +72,23 @@ public class RepositoryFileContentService {
 
         int downloadedCount = 0;
 
+        if (files == null || files.isEmpty()) {
+            return downloadedCount;
+        }
+
         for (RepositoryFile file : files) {
 
-            if (file.getGithubSha() == null ||
-                    file.getGithubSha().isBlank()) {
+            /*
+             * IMPORTANT:
+             *
+             * We use pendingGithubSha here instead of githubSha.
+             *
+             * githubSha represents the last successfully indexed version.
+             * pendingGithubSha represents the newly discovered GitHub version.
+             */
+            String sha = file.getPendingGithubSha();
+
+            if (sha == null || sha.isBlank()) {
                 continue;
             }
 
@@ -98,15 +96,14 @@ public class RepositoryFileContentService {
                     gitHubService.getBlob(
                             repository.getOwner(),
                             repository.getName(),
-                            file.getGithubSha()
+                            sha
                     );
 
             if (blob == null) {
                 continue;
             }
 
-            String decodedContent =
-                    decodeContent(blob);
+            String decodedContent = decodeContent(blob);
 
             file.setContent(decodedContent);
 
@@ -120,15 +117,21 @@ public class RepositoryFileContentService {
 
     private String decodeContent(GitHubBlobResponse blob) {
 
-        if (blob.content() == null ||
-                blob.content().isBlank()) {
+        if (blob.content() == null || blob.content().isBlank()) {
             return "";
         }
 
-        if (!"base64".equalsIgnoreCase(blob.encoding())) {
+        String encoding = blob.encoding();
+
+        if (encoding == null || encoding.isBlank()) {
             throw new IllegalStateException(
-                    "Unsupported GitHub blob encoding: "
-                            + blob.encoding()
+                    "GitHub blob encoding is missing"
+            );
+        }
+
+        if (!"base64".equalsIgnoreCase(encoding)) {
+            throw new IllegalStateException(
+                    "Unsupported GitHub blob encoding: " + encoding
             );
         }
 
@@ -138,14 +141,22 @@ public class RepositoryFileContentService {
                         .replace("\r", "")
                         .replace(" ", "");
 
-        byte[] decodedBytes =
-                Base64.getDecoder().decode(
-                        normalizedContent
-                );
+        try {
 
-        return new String(
-                decodedBytes,
-                StandardCharsets.UTF_8
-        );
+            byte[] decoded =
+                    Base64.getDecoder().decode(normalizedContent);
+
+            return new String(
+                    decoded,
+                    StandardCharsets.UTF_8
+            );
+
+        } catch (IllegalArgumentException exception) {
+
+            throw new IllegalStateException(
+                    "Failed to decode GitHub blob content",
+                    exception
+            );
+        }
     }
 }

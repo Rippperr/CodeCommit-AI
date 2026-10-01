@@ -1,7 +1,19 @@
 package com.codecommitai.repositoryfile.entity;
 
 import com.codecommitai.repository.entity.Repository;
-import jakarta.persistence.*;
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.FetchType;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.GenerationType;
+import jakarta.persistence.Id;
+import jakarta.persistence.JoinColumn;
+import jakarta.persistence.ManyToOne;
+import jakarta.persistence.PrePersist;
+import jakarta.persistence.PreUpdate;
+import jakarta.persistence.Table;
+import jakarta.persistence.Transient;
+import jakarta.persistence.UniqueConstraint;
 
 import java.time.OffsetDateTime;
 import java.util.UUID;
@@ -23,43 +35,42 @@ public class RepositoryFile {
     private UUID id;
 
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
-    @JoinColumn(
-            name = "repository_id",
-            nullable = false,
-            foreignKey = @ForeignKey(
-                    name = "fk_repository_files_repository"
-            )
-    )
+    @JoinColumn(name = "repository_id", nullable = false)
     private Repository repository;
 
-    @Column(
-            name = "path",
-            nullable = false,
-            columnDefinition = "TEXT"
-    )
+    @Column(nullable = false)
     private String path;
 
-    @Column(
-            name = "file_name",
-            nullable = false,
-            length = 255
-    )
+    @Column(name = "file_name", nullable = false)
     private String fileName;
 
-    @Column(length = 50)
     private String extension;
 
-    @Column(length = 100)
     private String language;
 
-    @Column(name = "github_sha", length = 255)
+    /**
+     * SHA of the last GitHub version that was successfully indexed.
+     *
+     * This value is NOT changed during repository discovery.
+     * It is updated only after content download, chunking and
+     * embedding generation complete successfully.
+     */
+    @Column(name = "github_sha")
     private String githubSha;
 
     @Column(name = "file_size_bytes")
     private Long fileSizeBytes;
 
-    @Column(columnDefinition = "TEXT")
+    @Column(columnDefinition = "text")
     private String content;
+
+    /**
+     * Newly discovered GitHub SHA waiting for successful indexing.
+     *
+     * This field is transient and is NOT stored in PostgreSQL.
+     */
+    @Transient
+    private String pendingGithubSha;
 
     @Column(name = "created_at", nullable = false)
     private OffsetDateTime createdAt;
@@ -81,6 +92,10 @@ public class RepositoryFile {
 
     public UUID getId() {
         return id;
+    }
+
+    public void setId(UUID id) {
+        this.id = id;
     }
 
     public Repository getRepository() {
@@ -147,11 +162,27 @@ public class RepositoryFile {
         this.content = content;
     }
 
+    public String getPendingGithubSha() {
+        return pendingGithubSha;
+    }
+
+    public void setPendingGithubSha(String pendingGithubSha) {
+        this.pendingGithubSha = pendingGithubSha;
+    }
+
     public OffsetDateTime getCreatedAt() {
         return createdAt;
     }
 
+    public void setCreatedAt(OffsetDateTime createdAt) {
+        this.createdAt = createdAt;
+    }
+
     public OffsetDateTime getUpdatedAt() {
         return updatedAt;
+    }
+
+    public void setUpdatedAt(OffsetDateTime updatedAt) {
+        this.updatedAt = updatedAt;
     }
 }

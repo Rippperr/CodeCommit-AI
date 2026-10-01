@@ -105,7 +105,7 @@ public class RepositoryFileService {
             "vendor/"
     );
 
-    private static final Set<String> EXCLUDED_FILE_NAMES = Set.of(
+    private static final Set<String> EXCLUDED_FILES = Set.of(
             "package-lock.json",
             "yarn.lock",
             "pnpm-lock.yaml",
@@ -126,14 +126,12 @@ public class RepositoryFileService {
     @Transactional
     public RepositoryFileChangeSet discoverFilesWithChanges(UUID repositoryId) {
 
-        Repository repository = repositoryRepository
-                .findById(repositoryId)
-                .orElseThrow(() -> new IllegalArgumentException(
-                        "Repository not found: " + repositoryId
-                ));
-
-        String owner = repository.getOwner();
-        String repositoryName = repository.getName();
+        Repository repository = repositoryRepository.findById(repositoryId)
+                .orElseThrow(() ->
+                        new IllegalArgumentException(
+                                "Repository not found: " + repositoryId
+                        )
+                );
 
         String branch = repository.getDefaultBranch();
 
@@ -141,32 +139,21 @@ public class RepositoryFileService {
             branch = "main";
         }
 
-        GitHubTreeResponse treeResponse =
-                gitHubService.getRepositoryTree(
-                        owner,
-                        repositoryName,
-                        branch
-                );
+        GitHubTreeResponse tree = gitHubService.getRepositoryTree(
+                repository.getOwner(),
+                repository.getName(),
+                branch
+        );
 
-        if (treeResponse == null) {
+        if (tree == null) {
             throw new IllegalStateException(
-                    "GitHub returned an empty tree response"
+                    "GitHub repository tree response is null"
             );
         }
 
-        if (treeResponse.truncated()) {
+        if (tree.truncated()) {
             throw new IllegalStateException(
-                    "GitHub repository tree is truncated. " +
-                    "The repository is too large for a single recursive tree request."
-            );
-        }
-
-        if (treeResponse.tree() == null) {
-            return new RepositoryFileChangeSet(
-                    List.of(),
-                    List.of(),
-                    List.of(),
-                    repositoryFileRepository.findAllByRepositoryId(repositoryId)
+                    "GitHub repository tree is truncated; indexing cannot continue safely"
             );
         }
 
@@ -176,91 +163,97 @@ public class RepositoryFileService {
 
         Set<String> currentPaths = new HashSet<>();
 
-        for (GitHubTreeResponse.TreeEntry entry : treeResponse.tree()) {
+        if (tree.tree() != null) {
 
-            if (!"blob".equalsIgnoreCase(entry.type())) {
-                continue;
-            }
+            for (GitHubTreeResponse.TreeEntry entry : tree.tree()) {
 
-            if (!isSupportedFile(entry.path())) {
-                continue;
-            }
+                if (entry == null) {
+                    continue;
+                }
 
-            currentPaths.add(entry.path());
+                if (!"blob".equalsIgnoreCase(entry.type())) {
+                    continue;
+                }
 
-            RepositoryFile repositoryFile =
-                    repositoryFileRepository
-                            .findByRepositoryIdAndPath(
-                                    repositoryId,
-                                    entry.path()
-                            )
-                            .orElse(null);
+                String path = entry.path();
 
-            if (repositoryFile == null) {
-                repositoryFile = new RepositoryFile();
+                if (!isSupportedFile(path)) {
+                    continue;
+                }
 
-                repositoryFile.setRepository(repository);
-                repositoryFile.setPath(entry.path());
+                currentPaths.add(path);
 
-                repositoryFile.setFileName(
-                        extractFileName(entry.path())
-                );
-
-                repositoryFile.setExtension(
-                        extractExtension(entry.path())
-                );
-
-                repositoryFile.setLanguage(
-                        detectLanguage(entry.path())
-                );
-
-                repositoryFile.setGithubSha(entry.sha());
-
-                repositoryFile.setFileSizeBytes(entry.size());
+                RepositoryFile existing =
+                        repositoryFileRepository
+                                .findByRepositoryIdAndPath(repositoryId, path)
+                                .orElse(null);
 
                 /*
-                 * Content is intentionally not downloaded yet.
-                 * The indexing pipeline will download it after discovery.
+                 * NEW FILE
                  */
-                RepositoryFile savedFile =
-                        repositoryFileRepository.save(repositoryFile);
+                if (existing == null) {
 
-                newFiles.add(savedFile);
-                continue;
-            }
+                    RepositoryFile repositoryFile =
+                            createRepositoryFile(repository, entry);
 
-            String previousSha = repositoryFile.getGithubSha();
+                    /*
+                     * The SHA is intentionally NOT written to githubSha.
+                     *
+                     * It stays transient until the complete indexing
+                     * pipeline succeeds.
+                     */
+                    repositoryFile.setPendingGithubSha(entry.sha());
 
-            repositoryFile.setRepository(repository);
-            repositoryFile.setPath(entry.path());
-
-            repositoryFile.setFileName(
-                    extractFileName(entry.path())
-            );
-
-            repositoryFile.setExtension(
-                    extractExtension(entry.path())
-            );
-
-            repositoryFile.setLanguage(
-                    detectLanguage(entry.path())
-            );
-
-            repositoryFile.setGithubSha(entry.sha());
-            repositoryFile.setFileSizeBytes(entry.size());
-
-            RepositoryFile savedFile =
                     repositoryFileRepository.save(repositoryFile);
 
-            if (previousSha == null || previousSha.isBlank()) {
-                modifiedFiles.add(savedFile);
-            } else if (!previousSha.equals(entry.sha())) {
-                modifiedFiles.add(savedFile);
-            } else {
-                unchangedFiles.add(savedFile);
+                    newFiles.add(repositoryFile);
+
+                    continue;
+                }
+
+                /*
+                 * EXISTING FILE
+                 */
+                String previousSha = existing.getGithubSha();
+                String currentSha = entry.sha();
+
+                updateMetadata(existing, entry);
+
+                /*
+                 * Store the newly discovered SHA only in memory.
+                 *
+                 * githubSha remains the SHA of the last successfully
+                 * indexed version.
+                 */
+                existing.setPendingGithubSha(currentSha);
+
+                /*
+                 * UNCHANGED FILE
+                 */
+                if (previousSha != null && previousSha.equals(currentSha)) {
+
+                    existing.setPendingGithubSha(null);
+
+                    repositoryFileRepository.save(existing);
+
+                    unchangedFiles.add(existing);
+
+                    continue;
+                }
+
+                /*
+                 * MODIFIED FILE
+                 */
+                repositoryFileRepository.save(existing);
+
+                modifiedFiles.add(existing);
             }
         }
 
+        /*
+         * Anything previously indexed but missing from the current
+         * GitHub tree has been deleted from the repository.
+         */
         List<RepositoryFile> existingFiles =
                 repositoryFileRepository.findAllByRepositoryId(repositoryId);
 
@@ -276,22 +269,104 @@ public class RepositoryFileService {
         );
     }
 
-    /*
-     * Kept for compatibility with the existing repository-file discovery
-     * endpoint and any code that still expects the original method.
+    /**
+     * Commits newly discovered GitHub SHAs as successfully indexed.
+     *
+     * This method must only be called after:
+     *
+     * 1. Content download succeeds
+     * 2. Chunking succeeds
+     * 3. Embedding generation succeeds
+     *
+     * If any previous stage fails, this method is never called and
+     * githubSha continues to represent the previous successfully
+     * indexed version.
+     */
+    @Transactional
+    public void markFilesAsIndexed(List<RepositoryFile> files) {
+
+        if (files == null || files.isEmpty()) {
+            return;
+        }
+
+        for (RepositoryFile file : files) {
+
+            String pendingSha = file.getPendingGithubSha();
+
+            if (pendingSha == null || pendingSha.isBlank()) {
+                continue;
+            }
+
+            file.setGithubSha(pendingSha);
+            file.setPendingGithubSha(null);
+
+            repositoryFileRepository.save(file);
+        }
+
+        repositoryFileRepository.flush();
+    }
+
+    /**
+     * Compatibility method for existing callers.
      */
     @Transactional
     public List<RepositoryFile> discoverFiles(UUID repositoryId) {
+
         RepositoryFileChangeSet changeSet =
                 discoverFilesWithChanges(repositoryId);
 
-        List<RepositoryFile> discoveredFiles = new ArrayList<>();
+        List<RepositoryFile> files = new ArrayList<>();
 
-        discoveredFiles.addAll(changeSet.newFiles());
-        discoveredFiles.addAll(changeSet.modifiedFiles());
-        discoveredFiles.addAll(changeSet.unchangedFiles());
+        files.addAll(changeSet.newFiles());
+        files.addAll(changeSet.modifiedFiles());
+        files.addAll(changeSet.unchangedFiles());
 
-        return discoveredFiles;
+        return files;
+    }
+
+    private RepositoryFile createRepositoryFile(
+            Repository repository,
+            GitHubTreeResponse.TreeEntry entry
+    ) {
+
+        RepositoryFile repositoryFile = new RepositoryFile();
+
+        repositoryFile.setRepository(repository);
+        repositoryFile.setPath(entry.path());
+        repositoryFile.setFileName(extractFileName(entry.path()));
+        repositoryFile.setExtension(extractExtension(entry.path()));
+        repositoryFile.setLanguage(detectLanguage(entry.path()));
+
+        /*
+         * Do not set githubSha here.
+         *
+         * It will be committed only after successful indexing.
+         */
+        repositoryFile.setGithubSha(null);
+
+        repositoryFile.setFileSizeBytes(entry.size());
+
+        return repositoryFile;
+    }
+
+    private void updateMetadata(
+            RepositoryFile repositoryFile,
+            GitHubTreeResponse.TreeEntry entry
+    ) {
+
+        repositoryFile.setFileName(
+                extractFileName(entry.path())
+        );
+
+        repositoryFile.setExtension(
+                extractExtension(entry.path())
+        );
+
+        repositoryFile.setLanguage(
+                detectLanguage(entry.path())
+        );
+
+        repositoryFile.setFileSizeBytes(entry.size());
     }
 
     private boolean isSupportedFile(String path) {
@@ -301,62 +376,54 @@ public class RepositoryFileService {
         }
 
         String normalizedPath =
-                path.toLowerCase(Locale.ROOT);
+                path.replace('\\', '/')
+                        .toLowerCase(Locale.ROOT);
 
-        for (String excludedDirectory : EXCLUDED_DIRECTORIES) {
-            if (normalizedPath.contains(excludedDirectory)) {
+        for (String directory : EXCLUDED_DIRECTORIES) {
+
+            if (normalizedPath.contains("/" + directory)
+                    || normalizedPath.startsWith(directory)) {
                 return false;
             }
         }
 
-        String fileName =
-                extractFileName(normalizedPath);
+        String fileName = extractFileName(normalizedPath);
 
-        if (EXCLUDED_FILE_NAMES.contains(fileName)) {
+        if (EXCLUDED_FILES.contains(fileName)) {
             return false;
         }
 
-        if (EXTENSIONLESS_FILES.contains(fileName)) {
-            return true;
+        String extension = extractExtension(normalizedPath);
+
+        if (extension == null || extension.isBlank()) {
+            return EXTENSIONLESS_FILES.contains(fileName);
         }
 
-        String extension =
-                extractExtension(normalizedPath);
-
-        return extension != null
-                && SUPPORTED_EXTENSIONS.contains(extension);
+        return SUPPORTED_EXTENSIONS.contains(extension);
     }
 
     private String extractFileName(String path) {
 
-        if (path == null || path.isBlank()) {
-            return "";
-        }
+        int slashIndex = path.lastIndexOf('/');
 
-        int separatorIndex =
-                path.lastIndexOf('/');
-
-        if (separatorIndex < 0) {
+        if (slashIndex < 0) {
             return path;
         }
 
-        return path.substring(separatorIndex + 1);
+        return path.substring(slashIndex + 1);
     }
 
     private String extractExtension(String path) {
 
-        String fileName =
-                extractFileName(path);
+        String fileName = extractFileName(path);
 
-        int dotIndex =
-                fileName.lastIndexOf('.');
+        int dotIndex = fileName.lastIndexOf('.');
 
         if (dotIndex <= 0 || dotIndex == fileName.length() - 1) {
-            return null;
+            return "";
         }
 
-        return fileName
-                .substring(dotIndex + 1)
+        return fileName.substring(dotIndex + 1)
                 .toLowerCase(Locale.ROOT);
     }
 
@@ -366,81 +433,94 @@ public class RepositoryFileService {
                 extractFileName(path)
                         .toLowerCase(Locale.ROOT);
 
-        if (fileName.equals("dockerfile")) {
-            return "Dockerfile";
-        }
-
-        if (fileName.equals("makefile")) {
-            return "Makefile";
-        }
-
-        if (fileName.equals("jenkinsfile")) {
-            return "Jenkinsfile";
-        }
-
-        if (fileName.equals("license")) {
-            return "Text";
-        }
-
-        if (fileName.equals("readme")) {
-            return "Markdown";
-        }
-
-        if (fileName.equals(".gitignore")
-                || fileName.equals(".gitattributes")
-                || fileName.equals(".dockerignore")
-                || fileName.equals(".editorconfig")
-                || fileName.equals(".npmrc")
-                || fileName.equals(".nvmrc")
-                || fileName.equals(".prettierrc")
-                || fileName.equals(".eslintrc")) {
-            return "Configuration";
-        }
-
-        String extension =
-                extractExtension(path);
-
-        if (extension == null) {
-            return "Unknown";
-        }
+        String extension = extractExtension(path);
 
         return switch (extension) {
+
             case "java" -> "Java";
+
             case "js" -> "JavaScript";
-            case "jsx" -> "JavaScript";
+
+            case "jsx" -> "JavaScript React";
+
             case "ts" -> "TypeScript";
-            case "tsx" -> "TypeScript";
+
+            case "tsx" -> "TypeScript React";
+
             case "html", "htm" -> "HTML";
+
             case "css" -> "CSS";
+
             case "scss" -> "SCSS";
+
             case "sass" -> "Sass";
+
             case "less" -> "Less";
+
             case "json" -> "JSON";
+
             case "xml" -> "XML";
+
             case "yaml", "yml" -> "YAML";
+
             case "properties" -> "Properties";
+
             case "sql" -> "SQL";
+
             case "md" -> "Markdown";
+
             case "txt" -> "Text";
+
             case "py" -> "Python";
+
             case "c" -> "C";
-            case "h" -> "C";
+
+            case "h" -> "C Header";
+
             case "cpp", "cc", "cxx" -> "C++";
-            case "hpp" -> "C++";
+
+            case "hpp" -> "C++ Header";
+
             case "cs" -> "C#";
+
             case "go" -> "Go";
+
             case "rs" -> "Rust";
+
             case "php" -> "PHP";
+
             case "rb" -> "Ruby";
+
             case "swift" -> "Swift";
+
             case "kt", "kts" -> "Kotlin";
+
             case "dart" -> "Dart";
+
             case "sh", "bash", "zsh" -> "Shell";
+
             case "ps1" -> "PowerShell";
+
             case "bat", "cmd" -> "Batch";
+
             case "vue" -> "Vue";
+
             case "svelte" -> "Svelte";
-            default -> "Unknown";
+
+            default -> switch (fileName) {
+
+                case "dockerfile" -> "Dockerfile";
+
+                case "makefile" -> "Makefile";
+
+                case "jenkinsfile" -> "Jenkinsfile";
+
+                case "license" -> "License";
+
+                case "readme" -> "Markdown";
+
+                default -> "Unknown";
+            };
         };
     }
 }
