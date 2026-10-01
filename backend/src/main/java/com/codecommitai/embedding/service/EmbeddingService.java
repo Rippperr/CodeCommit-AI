@@ -1,3 +1,4 @@
+
 package com.codecommitai.embedding.service;
 
 import com.codecommitai.codechunk.entity.CodeChunk;
@@ -8,11 +9,14 @@ import com.codecommitai.embedding.repository.EmbeddingRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
 @Service
 public class EmbeddingService {
+
+    private static final int MAX_BATCH_SIZE = 100;
 
     private final CodeChunkRepository codeChunkRepository;
     private final EmbeddingRepository embeddingRepository;
@@ -67,11 +71,65 @@ public class EmbeddingService {
                                 repositoryId
                         );
 
+        if (chunks.isEmpty()) {
+            return 0;
+        }
+
+        String model =
+                embeddingProvider.getModelName();
+
         int generatedCount = 0;
 
-        for (CodeChunk chunk : chunks) {
-            generateForChunk(chunk.getId());
-            generatedCount++;
+        for (int start = 0; start < chunks.size(); start += MAX_BATCH_SIZE) {
+
+            int end =
+                    Math.min(
+                            start + MAX_BATCH_SIZE,
+                            chunks.size()
+                    );
+
+            List<CodeChunk> batch =
+                    chunks.subList(start, end);
+
+            List<String> texts =
+                    batch.stream()
+                            .map(CodeChunk::getContent)
+                            .toList();
+
+            List<float[]> vectors =
+                    embeddingProvider.generateEmbeddings(texts);
+
+            if (vectors.size() != batch.size()) {
+                throw new IllegalStateException(
+                        "Embedding provider returned "
+                                + vectors.size()
+                                + " embeddings for "
+                                + batch.size()
+                                + " chunks"
+                );
+            }
+
+            for (int i = 0; i < batch.size(); i++) {
+
+                CodeChunk chunk = batch.get(i);
+
+                float[] vector = vectors.get(i);
+
+                validateDimensions(vector);
+
+                Embedding embedding =
+                        embeddingRepository
+                                .findByCodeChunkId(chunk.getId())
+                                .orElseGet(Embedding::new);
+
+                embedding.setCodeChunk(chunk);
+                embedding.setEmbedding(vector);
+                embedding.setModel(model);
+
+                embeddingRepository.save(embedding);
+
+                generatedCount++;
+            }
         }
 
         return generatedCount;
