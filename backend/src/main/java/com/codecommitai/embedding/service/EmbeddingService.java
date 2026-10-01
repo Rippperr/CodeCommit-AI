@@ -1,4 +1,3 @@
-
 package com.codecommitai.embedding.service;
 
 import com.codecommitai.codechunk.entity.CodeChunk;
@@ -9,7 +8,6 @@ import com.codecommitai.embedding.repository.EmbeddingRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
@@ -34,7 +32,6 @@ public class EmbeddingService {
 
     @Transactional
     public Embedding generateForChunk(UUID codeChunkId) {
-
         CodeChunk codeChunk =
                 codeChunkRepository.findById(codeChunkId)
                         .orElseThrow(() -> new IllegalArgumentException(
@@ -58,13 +55,15 @@ public class EmbeddingService {
         embedding.setModel(
                 embeddingProvider.getModelName()
         );
+        embedding.setDimensions(
+                embeddingProvider.getDimensions()
+        );
 
         return embeddingRepository.save(embedding);
     }
 
     @Transactional
     public int generateForRepository(UUID repositoryId) {
-
         List<CodeChunk> chunks =
                 codeChunkRepository
                         .findAllByRepositoryFileRepositoryId(
@@ -77,6 +76,9 @@ public class EmbeddingService {
 
         String model =
                 embeddingProvider.getModelName();
+
+        int dimensions =
+                embeddingProvider.getDimensions();
 
         int generatedCount = 0;
 
@@ -110,9 +112,7 @@ public class EmbeddingService {
             }
 
             for (int i = 0; i < batch.size(); i++) {
-
                 CodeChunk chunk = batch.get(i);
-
                 float[] vector = vectors.get(i);
 
                 validateDimensions(vector);
@@ -125,6 +125,7 @@ public class EmbeddingService {
                 embedding.setCodeChunk(chunk);
                 embedding.setEmbedding(vector);
                 embedding.setModel(model);
+                embedding.setDimensions(dimensions);
 
                 embeddingRepository.save(embedding);
 
@@ -136,7 +137,6 @@ public class EmbeddingService {
     }
 
     private void validateDimensions(float[] vector) {
-
         if (vector == null) {
             throw new IllegalStateException(
                     "Embedding provider returned null"

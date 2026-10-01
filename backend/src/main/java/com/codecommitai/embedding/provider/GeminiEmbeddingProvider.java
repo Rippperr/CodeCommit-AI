@@ -1,10 +1,10 @@
-
 package com.codecommitai.embedding.provider;
 
 import com.google.genai.Client;
 import com.google.genai.errors.ClientException;
 import com.google.genai.types.EmbedContentConfig;
 import com.google.genai.types.EmbedContentResponse;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
@@ -27,28 +27,61 @@ public class GeminiEmbeddingProvider implements EmbeddingProvider {
     private final String modelName;
     private final int dimensions;
 
+    @Autowired
     public GeminiEmbeddingProvider(
             @Value("${gemini.api.key}") String apiKey,
             @Value("${gemini.embedding.model}") String modelName,
             @Value("${gemini.embedding.dimensions}") int dimensions
     ) {
+        this(
+                createClient(apiKey),
+                modelName,
+                dimensions
+        );
+    }
+
+    GeminiEmbeddingProvider(
+            Client client,
+            String modelName,
+            int dimensions
+    ) {
+        if (client == null) {
+            throw new IllegalArgumentException(
+                    "Gemini client cannot be null"
+            );
+        }
+
+        if (modelName == null || modelName.isBlank()) {
+            throw new IllegalArgumentException(
+                    "Gemini model name cannot be null or blank"
+            );
+        }
+
+        if (dimensions <= 0) {
+            throw new IllegalArgumentException(
+                    "Embedding dimensions must be greater than zero"
+            );
+        }
+
+        this.client = client;
+        this.modelName = modelName;
+        this.dimensions = dimensions;
+    }
+
+    private static Client createClient(String apiKey) {
         if (apiKey == null || apiKey.isBlank()) {
             throw new IllegalStateException(
                     "GEMINI_API_KEY is not configured"
             );
         }
 
-        this.client = Client.builder()
+        return Client.builder()
                 .apiKey(apiKey)
                 .build();
-
-        this.modelName = modelName;
-        this.dimensions = dimensions;
     }
 
     @Override
     public float[] generateEmbedding(String text) {
-
         if (text == null || text.isBlank()) {
             throw new IllegalArgumentException(
                     "Text cannot be null or blank"
@@ -63,7 +96,6 @@ public class GeminiEmbeddingProvider implements EmbeddingProvider {
 
     @Override
     public List<float[]> generateEmbeddings(List<String> texts) {
-
         validateInput(texts);
 
         if (texts.size() > MAX_BATCH_SIZE) {
@@ -83,9 +115,7 @@ public class GeminiEmbeddingProvider implements EmbeddingProvider {
         ClientException lastException = null;
 
         for (int attempt = 0; attempt <= MAX_RETRIES; attempt++) {
-
             try {
-
                 EmbedContentResponse response =
                         client.models.embedContent(
                                 modelName,
@@ -99,7 +129,6 @@ public class GeminiEmbeddingProvider implements EmbeddingProvider {
                 );
 
             } catch (ClientException e) {
-
                 lastException = e;
 
                 if (!isRetryableRateLimit(e)
@@ -131,7 +160,6 @@ public class GeminiEmbeddingProvider implements EmbeddingProvider {
             EmbedContentResponse response,
             int expectedCount
     ) {
-
         List<com.google.genai.types.ContentEmbedding> embeddings =
                 response.embeddings()
                         .orElseThrow(() ->
@@ -187,7 +215,6 @@ public class GeminiEmbeddingProvider implements EmbeddingProvider {
     }
 
     private void validateInput(List<String> texts) {
-
         if (texts == null || texts.isEmpty()) {
             throw new IllegalArgumentException(
                     "Texts cannot be null or empty"
@@ -195,7 +222,6 @@ public class GeminiEmbeddingProvider implements EmbeddingProvider {
         }
 
         for (String text : texts) {
-
             if (text == null || text.isBlank()) {
                 throw new IllegalArgumentException(
                         "Text cannot be null or blank"
@@ -207,9 +233,7 @@ public class GeminiEmbeddingProvider implements EmbeddingProvider {
     private boolean isRetryableRateLimit(
             ClientException exception
     ) {
-
-        String message =
-                exception.getMessage();
+        String message = exception.getMessage();
 
         return message != null
                 && message.contains("429")
@@ -219,17 +243,13 @@ public class GeminiEmbeddingProvider implements EmbeddingProvider {
     private long extractRetryDelaySeconds(
             ClientException exception
     ) {
-
-        String message =
-                exception.getMessage();
+        String message = exception.getMessage();
 
         if (message != null) {
-
             Matcher matcher =
                     RETRY_DELAY_PATTERN.matcher(message);
 
             if (matcher.find()) {
-
                 try {
                     return Long.parseLong(
                             matcher.group(1)
@@ -244,15 +264,9 @@ public class GeminiEmbeddingProvider implements EmbeddingProvider {
     }
 
     private void sleep(long seconds) {
-
         try {
-
-            Thread.sleep(
-                    seconds * 1000L
-            );
-
+            Thread.sleep(seconds * 1000L);
         } catch (InterruptedException e) {
-
             Thread.currentThread().interrupt();
 
             throw new IllegalStateException(

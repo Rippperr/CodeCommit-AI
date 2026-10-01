@@ -47,6 +47,12 @@ public class Embedding {
     private String model;
 
     @Column(
+            name = "dimensions",
+            nullable = false
+    )
+    private Integer dimensions;
+
+    @Column(
             name = "created_at",
             nullable = false
     )
@@ -83,6 +89,14 @@ public class Embedding {
 
     public void setModel(String model) {
         this.model = model;
+    }
+
+    public Integer getDimensions() {
+        return dimensions;
+    }
+
+    public void setDimensions(Integer dimensions) {
+        this.dimensions = dimensions;
     }
 
     public OffsetDateTime getCreatedAt() {
