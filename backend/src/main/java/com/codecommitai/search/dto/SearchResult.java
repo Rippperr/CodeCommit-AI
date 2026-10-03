@@ -7,6 +7,8 @@ public record SearchResult(
         Integer startLine,
         Integer endLine,
         String content,
-        Double relevanceScore
+        Double score,
+        Double keywordScore,
+        Double semanticScore
 ) {
 }

@@ -1,7 +1,9 @@
 package com.codecommitai.search.controller;
 
+import com.codecommitai.embedding.dto.VectorSearchResult;
 import com.codecommitai.search.dto.SearchResult;
 import com.codecommitai.search.service.KeywordSearchService;
+import com.codecommitai.search.service.SemanticSearchService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -21,26 +23,38 @@ class SearchControllerTest {
     @Mock
     private KeywordSearchService keywordSearchService;
 
+    @Mock
+    private SemanticSearchService semanticSearchService;
+
     private SearchController searchController;
 
     @BeforeEach
     void setUp() {
-        searchController = new SearchController(keywordSearchService);
+        searchController =
+                new SearchController(
+                        keywordSearchService,
+                        semanticSearchService
+                );
     }
 
     @Test
-    void search_shouldReturnSearchResults() {
-        UUID repositoryId = UUID.randomUUID();
+    void search_shouldUseKeywordSearchByDefault() {
 
-        SearchResult result = new SearchResult(
-                "src/main/java/UserService.java",
-                "UserService.java",
-                0,
-                10,
-                25,
-                "public class UserService {}",
-                0.95
-        );
+        UUID repositoryId =
+                UUID.randomUUID();
+
+        SearchResult result =
+                new SearchResult(
+                        "src/main/java/UserService.java",
+                        "UserService.java",
+                        0,
+                        1,
+                        20,
+                        "public class UserService {}",
+                        0.95,
+                        0.95,
+                        null
+                );
 
         when(keywordSearchService.search(
                 repositoryId,
@@ -48,78 +62,156 @@ class SearchControllerTest {
                 10
         )).thenReturn(List.of(result));
 
-        ResponseEntity<List<SearchResult>> response =
+        ResponseEntity<?> response =
                 searchController.search(
+                        repositoryId,
+                        "UserService",
+                        "keyword",
+                        10
+                );
+
+        assertEquals(
+                200,
+                response.getStatusCode().value()
+        );
+
+        assertEquals(
+                List.of(result),
+                response.getBody()
+        );
+
+        verify(keywordSearchService)
+                .search(
                         repositoryId,
                         "UserService",
                         10
                 );
 
-        assertEquals(200, response.getStatusCode().value());
-        assertNotNull(response.getBody());
-        assertEquals(1, response.getBody().size());
-        assertEquals(result, response.getBody().get(0));
-
-        verify(keywordSearchService).search(
-                repositoryId,
-                "UserService",
-                10
+        verifyNoInteractions(
+                semanticSearchService
         );
     }
 
     @Test
-    void search_shouldReturnEmptyResults() {
-        UUID repositoryId = UUID.randomUUID();
+    void search_shouldUseSemanticSearchWhenTypeIsSemantic() {
 
-        when(keywordSearchService.search(
+        UUID repositoryId =
+                UUID.randomUUID();
+
+        VectorSearchResult result =
+                new VectorSearchResult(
+                        "src/main/java/UserService.java",
+                        "UserService.java",
+                        0,
+                        1,
+                        20,
+                        "public class UserService {}",
+                        0.15
+                );
+
+        when(semanticSearchService.search(
                 repositoryId,
-                "doesNotExist",
+                "user authentication service",
                 10
-        )).thenReturn(List.of());
+        )).thenReturn(List.of(result));
 
-        ResponseEntity<List<SearchResult>> response =
+        ResponseEntity<?> response =
                 searchController.search(
                         repositoryId,
-                        "doesNotExist",
+                        "user authentication service",
+                        "semantic",
                         10
                 );
 
-        assertEquals(200, response.getStatusCode().value());
-        assertNotNull(response.getBody());
-        assertTrue(response.getBody().isEmpty());
+        assertEquals(
+                200,
+                response.getStatusCode().value()
+        );
 
-        verify(keywordSearchService).search(
-                repositoryId,
-                "doesNotExist",
-                10
+        assertEquals(
+                List.of(result),
+                response.getBody()
+        );
+
+        verify(semanticSearchService)
+                .search(
+                        repositoryId,
+                        "user authentication service",
+                        10
+                );
+
+        verifyNoInteractions(
+                keywordSearchService
         );
     }
 
     @Test
-    void search_shouldPassCustomLimit() {
-        UUID repositoryId = UUID.randomUUID();
+    void search_shouldAcceptCaseInsensitiveSearchType() {
 
-        when(keywordSearchService.search(
+        UUID repositoryId =
+                UUID.randomUUID();
+
+        when(semanticSearchService.search(
                 repositoryId,
-                "Repository",
-                25
+                "authentication",
+                5
         )).thenReturn(List.of());
 
-        ResponseEntity<List<SearchResult>> response =
+        ResponseEntity<?> response =
                 searchController.search(
                         repositoryId,
-                        "Repository",
-                        25
+                        "authentication",
+                        "SeMaNtIc",
+                        5
                 );
 
-        assertEquals(200, response.getStatusCode().value());
-        assertNotNull(response.getBody());
-        assertTrue(response.getBody().isEmpty());
+        assertEquals(
+                200,
+                response.getStatusCode().value()
+        );
 
-        verify(keywordSearchService).search(
-                repositoryId,
-                "Repository",
-                25
+        assertEquals(
+                List.of(),
+                response.getBody()
+        );
+
+        verify(semanticSearchService)
+                .search(
+                        repositoryId,
+                        "authentication",
+                        5
+                );
+
+        verifyNoInteractions(
+                keywordSearchService
+        );
+    }
+
+    @Test
+    void search_shouldRejectUnsupportedSearchType() {
+
+        UUID repositoryId =
+                UUID.randomUUID();
+
+        IllegalArgumentException exception =
+                assertThrows(
+                        IllegalArgumentException.class,
+                        () -> searchController.search(
+                                repositoryId,
+                                "authentication",
+                                "hybrid",
+                                10
+                        )
+                );
+
+        assertEquals(
+                "Unsupported search type: hybrid",
+                exception.getMessage()
+        );
+
+        verifyNoInteractions(
+                keywordSearchService,
+                semanticSearchService
         );
     }
 }

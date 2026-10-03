@@ -18,19 +18,33 @@ public class KeywordSearchService {
 
     private final KeywordSearchRepository keywordSearchRepository;
 
-    public KeywordSearchService(KeywordSearchRepository keywordSearchRepository) {
-        this.keywordSearchRepository = keywordSearchRepository;
+    public KeywordSearchService(
+            KeywordSearchRepository keywordSearchRepository
+    ) {
+        this.keywordSearchRepository =
+                keywordSearchRepository;
     }
 
     @Transactional(readOnly = true)
-    public List<SearchResult> search(UUID repositoryId, String query, int limit) {
+    public List<SearchResult> search(
+            UUID repositoryId,
+            String query,
+            int limit
+    ) {
+
         validateRepositoryId(repositoryId);
 
-        String normalizedQuery = normalizeQuery(query);
-        int normalizedLimit = normalizeLimit(limit);
-        String escapedQuery = escapeLikeWildcards(normalizedQuery);
+        String normalizedQuery =
+                normalizeQuery(query);
 
-        return keywordSearchRepository.search(
+        int normalizedLimit =
+                normalizeLimit(limit);
+
+        String escapedQuery =
+                escapeLikeWildcards(normalizedQuery);
+
+        return keywordSearchRepository
+                .search(
                         repositoryId,
                         normalizedQuery,
                         escapedQuery,
@@ -42,11 +56,25 @@ public class KeywordSearchService {
     }
 
     @Transactional(readOnly = true)
-    public List<SearchResult> search(UUID repositoryId, String query) {
-        return search(repositoryId, query, DEFAULT_LIMIT);
+    public List<SearchResult> search(
+            UUID repositoryId,
+            String query
+    ) {
+
+        return search(
+                repositoryId,
+                query,
+                DEFAULT_LIMIT
+        );
     }
 
-    private SearchResult toSearchResult(KeywordSearchProjection projection) {
+    private SearchResult toSearchResult(
+            KeywordSearchProjection projection
+    ) {
+
+        Double keywordScore =
+                projection.getRelevanceScore();
+
         return new SearchResult(
                 projection.getFilePath(),
                 projection.getFileName(),
@@ -54,49 +82,76 @@ public class KeywordSearchService {
                 projection.getStartLine(),
                 projection.getEndLine(),
                 projection.getContent(),
-                projection.getRelevanceScore()
+                keywordScore,
+                keywordScore,
+                null
         );
     }
 
-    private void validateRepositoryId(UUID repositoryId) {
+    private void validateRepositoryId(
+            UUID repositoryId
+    ) {
+
         if (repositoryId == null) {
-            throw new IllegalArgumentException("Repository ID cannot be null");
+
+            throw new IllegalArgumentException(
+                    "Repository ID cannot be null"
+            );
         }
     }
 
-    private String normalizeQuery(String query) {
+    private String normalizeQuery(
+            String query
+    ) {
+
         if (query == null || query.isBlank()) {
-            throw new IllegalArgumentException("Search query cannot be blank");
+
+            throw new IllegalArgumentException(
+                    "Search query cannot be blank"
+            );
         }
 
-        String normalized = query.trim();
+        String normalized =
+                query.trim();
 
         if (normalized.length() > MAX_QUERY_LENGTH) {
+
             throw new IllegalArgumentException(
-                    "Search query cannot exceed " + MAX_QUERY_LENGTH + " characters"
+                    "Search query cannot exceed "
+                            + MAX_QUERY_LENGTH
+                            + " characters"
             );
         }
 
         return normalized;
     }
 
-    private int normalizeLimit(int limit) {
+    private int normalizeLimit(
+            int limit
+    ) {
+
         if (limit <= 0) {
+
             throw new IllegalArgumentException(
                     "Search limit must be greater than zero"
             );
         }
 
         if (limit > MAX_LIMIT) {
+
             throw new IllegalArgumentException(
-                    "Search limit cannot exceed " + MAX_LIMIT
+                    "Search limit cannot exceed "
+                            + MAX_LIMIT
             );
         }
 
         return limit;
     }
 
-    private String escapeLikeWildcards(String query) {
+    private String escapeLikeWildcards(
+            String query
+    ) {
+
         return query
                 .replace("\\", "\\\\")
                 .replace("%", "\\%")
