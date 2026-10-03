@@ -23,6 +23,23 @@ public interface VectorSearchRepository
     );
 
     @Query(value = """
+            SELECT e.id
+            FROM embeddings e
+            INNER JOIN code_chunks c
+                ON c.id = e.code_chunk_id
+            INNER JOIN repository_files rf
+                ON rf.id = c.repository_file_id
+            WHERE rf.repository_id = :repositoryId
+            ORDER BY e.embedding <=> CAST(:queryVector AS vector)
+            LIMIT :limit
+            """, nativeQuery = true)
+    List<UUID> findNearestEmbeddingIdsByRepository(
+            @Param("repositoryId") UUID repositoryId,
+            @Param("queryVector") String queryVector,
+            @Param("limit") int limit
+    );
+
+    @Query(value = """
             SELECT e.embedding <=> CAST(:queryVector AS vector)
             FROM embeddings e
             WHERE e.id = :embeddingId

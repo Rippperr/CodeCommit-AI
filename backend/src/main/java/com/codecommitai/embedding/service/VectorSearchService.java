@@ -28,14 +28,9 @@ public class VectorSearchService {
             EmbeddingRepository embeddingRepository,
             EmbeddingProvider embeddingProvider
     ) {
-        this.vectorSearchRepository =
-                vectorSearchRepository;
-
-        this.embeddingRepository =
-                embeddingRepository;
-
-        this.embeddingProvider =
-                embeddingProvider;
+        this.vectorSearchRepository = vectorSearchRepository;
+        this.embeddingRepository = embeddingRepository;
+        this.embeddingProvider = embeddingProvider;
     }
 
     @Transactional(readOnly = true)
@@ -51,6 +46,53 @@ public class VectorSearchService {
 
         List<UUID> embeddingIds =
                 vectorSearchRepository.findNearestEmbeddingIds(
+                        queryVectorString,
+                        limit
+                );
+
+        List<VectorSearchResult> results =
+                new ArrayList<>();
+
+        for (UUID embeddingId : embeddingIds) {
+
+            embeddingRepository
+                    .findById(embeddingId)
+                    .ifPresent(embedding -> {
+
+                        Double distance =
+                                vectorSearchRepository.calculateDistance(
+                                        embeddingId,
+                                        queryVectorString
+                                );
+
+                        results.add(
+                                toResult(
+                                        embedding,
+                                        distance
+                                )
+                        );
+                    });
+        }
+
+        return results;
+    }
+
+    @Transactional(readOnly = true)
+    public List<VectorSearchResult> searchByRepository(
+            UUID repositoryId,
+            float[] queryVector,
+            int limit
+    ) {
+
+        validateRepositoryId(repositoryId);
+        validateQuery(queryVector, limit);
+
+        String queryVectorString =
+                toVectorString(queryVector);
+
+        List<UUID> embeddingIds =
+                vectorSearchRepository.findNearestEmbeddingIdsByRepository(
+                        repositoryId,
                         queryVectorString,
                         limit
                 );
@@ -102,6 +144,18 @@ public class VectorSearchService {
                 chunk.getContent(),
                 distance
         );
+    }
+
+    private void validateRepositoryId(
+            UUID repositoryId
+    ) {
+
+        if (repositoryId == null) {
+
+            throw new IllegalArgumentException(
+                    "Repository ID cannot be null"
+            );
+        }
     }
 
     private void validateQuery(
