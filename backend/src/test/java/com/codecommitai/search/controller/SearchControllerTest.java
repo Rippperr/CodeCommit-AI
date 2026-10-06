@@ -2,6 +2,7 @@ package com.codecommitai.search.controller;
 
 import com.codecommitai.embedding.dto.VectorSearchResult;
 import com.codecommitai.search.dto.SearchResult;
+import com.codecommitai.search.service.HybridSearchService;
 import com.codecommitai.search.service.KeywordSearchService;
 import com.codecommitai.search.service.SemanticSearchService;
 import org.junit.jupiter.api.BeforeEach;
@@ -26,6 +27,9 @@ class SearchControllerTest {
     @Mock
     private SemanticSearchService semanticSearchService;
 
+    @Mock
+    private HybridSearchService hybridSearchService;
+
     private SearchController searchController;
 
     @BeforeEach
@@ -33,7 +37,8 @@ class SearchControllerTest {
         searchController =
                 new SearchController(
                         keywordSearchService,
-                        semanticSearchService
+                        semanticSearchService,
+                        hybridSearchService
                 );
     }
 
@@ -88,7 +93,8 @@ class SearchControllerTest {
                 );
 
         verifyNoInteractions(
-                semanticSearchService
+                semanticSearchService,
+                hybridSearchService
         );
     }
 
@@ -141,7 +147,64 @@ class SearchControllerTest {
                 );
 
         verifyNoInteractions(
-                keywordSearchService
+                keywordSearchService,
+                hybridSearchService
+        );
+    }
+
+    @Test
+    void search_shouldUseHybridSearchWhenTypeIsHybrid() {
+
+        UUID repositoryId =
+                UUID.randomUUID();
+
+        SearchResult result =
+                new SearchResult(
+                        "src/main/java/AuthService.java",
+                        "AuthService.java",
+                        0,
+                        1,
+                        25,
+                        "public class AuthService {}",
+                        0.87,
+                        0.90,
+                        0.82
+                );
+
+        when(hybridSearchService.search(
+                repositoryId,
+                "authentication service",
+                10
+        )).thenReturn(List.of(result));
+
+        ResponseEntity<?> response =
+                searchController.search(
+                        repositoryId,
+                        "authentication service",
+                        "hybrid",
+                        10
+                );
+
+        assertEquals(
+                200,
+                response.getStatusCode().value()
+        );
+
+        assertEquals(
+                List.of(result),
+                response.getBody()
+        );
+
+        verify(hybridSearchService)
+                .search(
+                        repositoryId,
+                        "authentication service",
+                        10
+                );
+
+        verifyNoInteractions(
+                keywordSearchService,
+                semanticSearchService
         );
     }
 
@@ -151,7 +214,7 @@ class SearchControllerTest {
         UUID repositoryId =
                 UUID.randomUUID();
 
-        when(semanticSearchService.search(
+        when(hybridSearchService.search(
                 repositoryId,
                 "authentication",
                 5
@@ -161,7 +224,7 @@ class SearchControllerTest {
                 searchController.search(
                         repositoryId,
                         "authentication",
-                        "SeMaNtIc",
+                        "HyBrId",
                         5
                 );
 
@@ -175,7 +238,7 @@ class SearchControllerTest {
                 response.getBody()
         );
 
-        verify(semanticSearchService)
+        verify(hybridSearchService)
                 .search(
                         repositoryId,
                         "authentication",
@@ -183,7 +246,8 @@ class SearchControllerTest {
                 );
 
         verifyNoInteractions(
-                keywordSearchService
+                keywordSearchService,
+                semanticSearchService
         );
     }
 
@@ -199,19 +263,20 @@ class SearchControllerTest {
                         () -> searchController.search(
                                 repositoryId,
                                 "authentication",
-                                "hybrid",
+                                "unknown",
                                 10
                         )
                 );
 
         assertEquals(
-                "Unsupported search type: hybrid",
+                "Unsupported search type: unknown",
                 exception.getMessage()
         );
 
         verifyNoInteractions(
                 keywordSearchService,
-                semanticSearchService
+                semanticSearchService,
+                hybridSearchService
         );
     }
 }

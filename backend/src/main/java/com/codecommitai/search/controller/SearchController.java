@@ -2,6 +2,7 @@ package com.codecommitai.search.controller;
 
 import com.codecommitai.embedding.dto.VectorSearchResult;
 import com.codecommitai.search.dto.SearchResult;
+import com.codecommitai.search.service.HybridSearchService;
 import com.codecommitai.search.service.KeywordSearchService;
 import com.codecommitai.search.service.SemanticSearchService;
 import org.springframework.http.ResponseEntity;
@@ -16,13 +17,21 @@ public class SearchController {
 
     private final KeywordSearchService keywordSearchService;
     private final SemanticSearchService semanticSearchService;
+    private final HybridSearchService hybridSearchService;
 
     public SearchController(
             KeywordSearchService keywordSearchService,
-            SemanticSearchService semanticSearchService
+            SemanticSearchService semanticSearchService,
+            HybridSearchService hybridSearchService
     ) {
-        this.keywordSearchService = keywordSearchService;
-        this.semanticSearchService = semanticSearchService;
+        this.keywordSearchService =
+                keywordSearchService;
+
+        this.semanticSearchService =
+                semanticSearchService;
+
+        this.hybridSearchService =
+                hybridSearchService;
     }
 
     @PostMapping
@@ -49,6 +58,18 @@ public class SearchController {
 
             List<VectorSearchResult> results =
                     semanticSearchService.search(
+                            repositoryId,
+                            query,
+                            limit
+                    );
+
+            return ResponseEntity.ok(results);
+        }
+
+        if ("hybrid".equalsIgnoreCase(type)) {
+
+            List<SearchResult> results =
+                    hybridSearchService.search(
                             repositoryId,
                             query,
                             limit

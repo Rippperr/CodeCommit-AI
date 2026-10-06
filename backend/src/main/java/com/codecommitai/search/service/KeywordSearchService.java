@@ -31,7 +31,6 @@ public class KeywordSearchService {
             String query,
             int limit
     ) {
-
         validateRepositoryId(repositoryId);
 
         String normalizedQuery =
@@ -40,14 +39,10 @@ public class KeywordSearchService {
         int normalizedLimit =
                 normalizeLimit(limit);
 
-        String escapedQuery =
-                escapeLikeWildcards(normalizedQuery);
-
         return keywordSearchRepository
                 .search(
                         repositoryId,
                         normalizedQuery,
-                        escapedQuery,
                         normalizedLimit
                 )
                 .stream()
@@ -60,7 +55,6 @@ public class KeywordSearchService {
             UUID repositoryId,
             String query
     ) {
-
         return search(
                 repositoryId,
                 query,
@@ -71,7 +65,6 @@ public class KeywordSearchService {
     private SearchResult toSearchResult(
             KeywordSearchProjection projection
     ) {
-
         Double keywordScore =
                 projection.getRelevanceScore();
 
@@ -91,9 +84,7 @@ public class KeywordSearchService {
     private void validateRepositoryId(
             UUID repositoryId
     ) {
-
         if (repositoryId == null) {
-
             throw new IllegalArgumentException(
                     "Repository ID cannot be null"
             );
@@ -103,9 +94,7 @@ public class KeywordSearchService {
     private String normalizeQuery(
             String query
     ) {
-
         if (query == null || query.isBlank()) {
-
             throw new IllegalArgumentException(
                     "Search query cannot be blank"
             );
@@ -115,7 +104,6 @@ public class KeywordSearchService {
                 query.trim();
 
         if (normalized.length() > MAX_QUERY_LENGTH) {
-
             throw new IllegalArgumentException(
                     "Search query cannot exceed "
                             + MAX_QUERY_LENGTH
@@ -129,16 +117,13 @@ public class KeywordSearchService {
     private int normalizeLimit(
             int limit
     ) {
-
         if (limit <= 0) {
-
             throw new IllegalArgumentException(
                     "Search limit must be greater than zero"
             );
         }
 
         if (limit > MAX_LIMIT) {
-
             throw new IllegalArgumentException(
                     "Search limit cannot exceed "
                             + MAX_LIMIT
@@ -146,15 +131,5 @@ public class KeywordSearchService {
         }
 
         return limit;
-    }
-
-    private String escapeLikeWildcards(
-            String query
-    ) {
-
-        return query
-                .replace("\\", "\\\\")
-                .replace("%", "\\%")
-                .replace("_", "\\_");
     }
 }

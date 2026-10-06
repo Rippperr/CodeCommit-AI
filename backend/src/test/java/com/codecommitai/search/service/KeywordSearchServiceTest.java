@@ -68,7 +68,6 @@ class KeywordSearchServiceTest {
         when(keywordSearchRepository.search(
                 repositoryId,
                 "UserService",
-                "UserService",
                 10
         )).thenReturn(List.of(projection));
 
@@ -132,7 +131,6 @@ class KeywordSearchServiceTest {
                 .search(
                         repositoryId,
                         "UserService",
-                        "UserService",
                         10
                 );
     }
@@ -145,7 +143,6 @@ class KeywordSearchServiceTest {
 
         when(keywordSearchRepository.search(
                 repositoryId,
-                "authentication",
                 "authentication",
                 10
         )).thenReturn(List.of());
@@ -162,7 +159,6 @@ class KeywordSearchServiceTest {
                 .search(
                         repositoryId,
                         "authentication",
-                        "authentication",
                         10
                 );
     }
@@ -175,7 +171,6 @@ class KeywordSearchServiceTest {
 
         when(keywordSearchRepository.search(
                 repositoryId,
-                "authentication",
                 "authentication",
                 10
         )).thenReturn(List.of());
@@ -192,7 +187,6 @@ class KeywordSearchServiceTest {
         verify(keywordSearchRepository)
                 .search(
                         repositoryId,
-                        "authentication",
                         "authentication",
                         10
                 );
@@ -329,7 +323,7 @@ class KeywordSearchServiceTest {
     }
 
     @Test
-    void search_shouldEscapeLikeWildcards() {
+    void search_shouldNotUseLikeWildcardEscaping() {
 
         UUID repositoryId =
                 UUID.randomUUID();
@@ -337,7 +331,6 @@ class KeywordSearchServiceTest {
         when(keywordSearchRepository.search(
                 repositoryId,
                 "User_%",
-                "User\\_\\%",
                 10
         )).thenReturn(List.of());
 
@@ -354,7 +347,6 @@ class KeywordSearchServiceTest {
                 .search(
                         repositoryId,
                         "User_%",
-                        "User\\_\\%",
                         10
                 );
     }
