@@ -1,3 +1,4 @@
+
 package com.codecommitai.search.service;
 
 import com.codecommitai.search.dto.SearchResult;
@@ -39,10 +40,7 @@ class SearchRankingServiceTest {
 
         List<SearchResult> results =
                 searchRankingService.rank(
-                        List.of(
-                                lowScore,
-                                highScore
-                        ),
+                        List.of(lowScore, highScore),
                         "authentication"
                 );
 
@@ -85,10 +83,7 @@ class SearchRankingServiceTest {
 
         List<SearchResult> results =
                 searchRankingService.rank(
-                        List.of(
-                                noMatch,
-                                exactMatch
-                        ),
+                        List.of(noMatch, exactMatch),
                         "authentication"
                 );
 
@@ -124,10 +119,7 @@ class SearchRankingServiceTest {
 
         List<SearchResult> results =
                 searchRankingService.rank(
-                        List.of(
-                                noFileMatch,
-                                fileMatch
-                        ),
+                        List.of(noFileMatch, fileMatch),
                         "authentication"
                 );
 
@@ -139,6 +131,41 @@ class SearchRankingServiceTest {
         assertTrue(
                 results.get(0).score()
                         > results.get(1).score()
+        );
+    }
+
+    @Test
+    void rank_shouldRewardRelevantIdentifierInNaturalLanguageQuery() {
+
+        SearchResult implementation =
+                result(
+                        "src/HybridSearchService.java",
+                        0.30,
+                        0.70,
+                        "class HybridSearchService { "
+                                + "void mergeResults() {} }"
+                );
+
+        SearchResult unrelated =
+                result(
+                        "src/UserService.java",
+                        0.30,
+                        0.70,
+                        "class UserService { "
+                                + "void authenticate() {} }"
+                );
+
+        List<SearchResult> results =
+                searchRankingService.rank(
+                        List.of(unrelated, implementation),
+                        "Explain exactly how HybridSearchService works "
+                                + "in this repository"
+                );
+
+        assertEquals(
+                "src/HybridSearchService.java",
+                results.get(0).filePath(),
+                "The implementation named in the question should rank first"
         );
     }
 
@@ -229,7 +256,10 @@ class SearchRankingServiceTest {
                         "authentication"
                 );
 
-        assertEquals(1.0, results.get(0).score());
+        assertEquals(
+                1.0,
+                results.get(0).score()
+        );
     }
 
     @Test

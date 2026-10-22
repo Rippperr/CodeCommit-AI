@@ -1,8 +1,6 @@
-
 package com.codecommitai.ai.service;
 
 import com.codecommitai.ai.dto.ChatResponse;
-import com.codecommitai.ai.dto.SourceReference;
 import com.codecommitai.ai.provider.TextGenerationProvider;
 import com.codecommitai.search.dto.SearchResult;
 import com.codecommitai.search.service.HybridSearchService;
@@ -15,7 +13,6 @@ import java.util.UUID;
 public class ChatService {
 
     private static final int SEARCH_LIMIT = 10;
-    private static final int MAX_SOURCE_REFERENCES = 8;
 
     private final HybridSearchService hybridSearchService;
     private final CodebasePromptBuilder promptBuilder;
@@ -35,7 +32,6 @@ public class ChatService {
             UUID repositoryId,
             String question
     ) {
-
         if (repositoryId == null) {
             throw new IllegalArgumentException(
                     "Repository ID cannot be null"
@@ -55,36 +51,20 @@ public class ChatService {
                         SEARCH_LIMIT
                 );
 
-        String prompt =
+        PromptBuildResult promptBuildResult =
                 promptBuilder.buildPrompt(
                         question.trim(),
                         searchResults
                 );
 
         String answer =
-                textGenerationProvider.generateText(prompt);
-
-        List<SourceReference> sources =
-                searchResults.stream()
-                        .filter(result ->
-                                result != null
-                                        && result.content() != null
-                                        && !result.content().isBlank()
-                        )
-                        .limit(MAX_SOURCE_REFERENCES)
-                        .map(result ->
-                                new SourceReference(
-                                        result.filePath(),
-                                        result.startLine(),
-                                        result.endLine()
-                                )
-                        )
-                        .toList();
+                textGenerationProvider.generateText(
+                        promptBuildResult.prompt()
+                );
 
         return new ChatResponse(
                 answer,
-                sources
+                promptBuildResult.sources()
         );
     }
 }
-

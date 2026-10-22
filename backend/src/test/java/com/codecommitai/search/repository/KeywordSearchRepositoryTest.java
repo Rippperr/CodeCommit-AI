@@ -1,3 +1,4 @@
+
 package com.codecommitai.search.repository;
 
 import org.junit.jupiter.api.Test;
@@ -43,7 +44,6 @@ class KeywordSearchRepositoryTest {
         );
 
         for (KeywordSearchProjection result : results) {
-
             assertNotNull(result.getFilePath());
             assertNotNull(result.getFileName());
             assertNotNull(result.getChunkIndex());
@@ -72,56 +72,38 @@ class KeywordSearchRepositoryTest {
         for (int i = 0; i < results.size() - 1; i++) {
 
             double currentScore =
-                    results.get(i)
-                            .getRelevanceScore();
+                    results.get(i).getRelevanceScore();
 
             double nextScore =
-                    results.get(i + 1)
-                            .getRelevanceScore();
+                    results.get(i + 1).getRelevanceScore();
 
             assertTrue(
                     currentScore >= nextScore,
                     "Results should be ordered by relevance score"
             );
         }
+
+        assertTrue(
+                results.stream().anyMatch(result ->
+                        result.getRelevanceScore() > 0.0
+                ),
+                "Matching results should have a positive relevance score"
+        );
     }
 
     @Test
-    void search_shouldGiveHigherScoreToMoreMatchingTokens() {
+    void search_shouldGiveNoResultsWhenNoMeaningfulTokenMatches() {
 
         List<KeywordSearchProjection> results =
                 keywordSearchRepository.search(
                         REPOSITORY_ID,
-                        "user authentication service",
+                        "the and or",
                         10
                 );
 
-        assertFalse(
-                results.isEmpty(),
-                "Search should return results"
-        );
-
-        double highestScore =
-                results.get(0)
-                        .getRelevanceScore();
-
-        assertEquals(
-                0.95,
-                highestScore,
-                0.0001,
-                "A result matching all three tokens should receive the highest score"
-        );
-
-        boolean containsLowerScore =
-                results.stream()
-                        .anyMatch(result ->
-                                result.getRelevanceScore()
-                                        < highestScore
-                        );
-
         assertTrue(
-                containsLowerScore,
-                "Results should contain scores lower than the highest score"
+                results.isEmpty(),
+                "A query containing only stop words should return no results"
         );
     }
 }

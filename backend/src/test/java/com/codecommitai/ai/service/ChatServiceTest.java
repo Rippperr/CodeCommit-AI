@@ -2,6 +2,7 @@
 package com.codecommitai.ai.service;
 
 import com.codecommitai.ai.dto.ChatResponse;
+import com.codecommitai.ai.dto.SourceReference;
 import com.codecommitai.ai.provider.TextGenerationProvider;
 import com.codecommitai.search.dto.SearchResult;
 import com.codecommitai.search.service.HybridSearchService;
@@ -67,6 +68,18 @@ class ChatServiceTest {
         List<SearchResult> searchResults =
                 List.of(searchResult);
 
+        List<SourceReference> sources =
+                List.of(
+                        new SourceReference(
+                                "src/main/java/IndexingService.java",
+                                10,
+                                25
+                        )
+                );
+
+        PromptBuildResult promptBuildResult =
+                new PromptBuildResult(prompt, sources);
+
         when(hybridSearchService.search(
                 repositoryId,
                 question,
@@ -76,7 +89,7 @@ class ChatServiceTest {
         when(promptBuilder.buildPrompt(
                 question,
                 searchResults
-        )).thenReturn(prompt);
+        )).thenReturn(promptBuildResult);
 
         when(textGenerationProvider.generateText(prompt))
                 .thenReturn(answer);
@@ -132,6 +145,9 @@ class ChatServiceTest {
         String answer =
                 "I could not find relevant code to answer this confidently.";
 
+        PromptBuildResult promptBuildResult =
+                new PromptBuildResult(prompt, List.of());
+
         when(hybridSearchService.search(
                 repositoryId,
                 question,
@@ -141,7 +157,7 @@ class ChatServiceTest {
         when(promptBuilder.buildPrompt(
                 question,
                 List.of()
-        )).thenReturn(prompt);
+        )).thenReturn(promptBuildResult);
 
         when(textGenerationProvider.generateText(prompt))
                 .thenReturn(answer);

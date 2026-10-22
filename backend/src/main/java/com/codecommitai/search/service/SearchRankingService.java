@@ -1,3 +1,4 @@
+
 package com.codecommitai.search.service;
 
 import com.codecommitai.search.dto.SearchResult;
@@ -5,6 +6,8 @@ import org.springframework.stereotype.Service;
 
 import java.util.Comparator;
 import java.util.List;
+import java.util.Locale;
+import java.util.regex.Pattern;
 
 @Service
 public class SearchRankingService {
@@ -13,6 +16,9 @@ public class SearchRankingService {
     private static final double SEMANTIC_WEIGHT = 0.40;
     private static final double EXACT_MATCH_BONUS = 0.10;
     private static final double FILE_PATH_BONUS = 0.05;
+
+    private static final Pattern TOKEN_PATTERN =
+            Pattern.compile("[a-zA-Z0-9_]+");
 
     public List<SearchResult> rank(
             List<SearchResult> results,
@@ -23,15 +29,11 @@ public class SearchRankingService {
             return List.of();
         }
 
-        String normalizedQuery =
-                normalizeQuery(query);
+        String normalizedQuery = normalizeQuery(query);
 
         return results.stream()
                 .map(result ->
-                        applyRanking(
-                                result,
-                                normalizedQuery
-                        )
+                        applyRanking(result, normalizedQuery)
                 )
                 .sorted(
                         Comparator.comparing(
@@ -55,8 +57,7 @@ public class SearchRankingService {
 
         double score =
                 (keywordScore * KEYWORD_WEIGHT)
-                        +
-                (semanticScore * SEMANTIC_WEIGHT);
+                        + (semanticScore * SEMANTIC_WEIGHT);
 
         if (hasExactMatch(result, query)) {
             score += EXACT_MATCH_BONUS;
@@ -86,13 +87,34 @@ public class SearchRankingService {
             String query
     ) {
 
-        String normalizedContent =
-                result.content()
-                        .toLowerCase();
+        String content = result.content();
 
-        return normalizedContent.contains(
-                query.toLowerCase()
-        );
+        if (content == null || content.isBlank()) {
+            return false;
+        }
+
+        String normalizedContent =
+                content.toLowerCase(Locale.ROOT);
+
+        // Preserve the original full-query match behavior.
+        if (normalizedContent.contains(query)) {
+            return true;
+        }
+
+        // Also reward a meaningful identifier explicitly named
+        // in a natural-language question.
+        for (String token : extractTokens(query)) {
+
+            if (token.length() < 4) {
+                continue;
+            }
+
+            if (normalizedContent.contains(token)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private boolean hasFilePathMatch(
@@ -100,16 +122,49 @@ public class SearchRankingService {
             String query
     ) {
 
-        String normalizedQuery =
-                query.toLowerCase();
+        String filePath = result.filePath();
+        String fileName = result.fileName();
 
-        return result.filePath()
-                .toLowerCase()
-                .contains(normalizedQuery)
-                ||
-                result.fileName()
-                        .toLowerCase()
-                        .contains(normalizedQuery);
+        String normalizedPath =
+                filePath == null
+                        ? ""
+                        : filePath.toLowerCase(Locale.ROOT);
+
+        String normalizedFileName =
+                fileName == null
+                        ? ""
+                        : fileName.toLowerCase(Locale.ROOT);
+
+        if (normalizedPath.contains(query)
+                || normalizedFileName.contains(query)) {
+            return true;
+        }
+
+        // Match meaningful query terms against the filename/path.
+        for (String token : extractTokens(query)) {
+
+            if (token.length() < 4) {
+                continue;
+            }
+
+            if (normalizedPath.contains(token)
+                    || normalizedFileName.contains(token)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private List<String> extractTokens(String query) {
+
+        return TOKEN_PATTERN.matcher(query)
+                .results()
+                .map(match ->
+                        match.group().toLowerCase(Locale.ROOT)
+                )
+                .distinct()
+                .toList();
     }
 
     private double safeScore(Double score) {
@@ -132,6 +187,6 @@ public class SearchRankingService {
             );
         }
 
-        return query.trim();
+        return query.trim().toLowerCase(Locale.ROOT);
     }
 }
