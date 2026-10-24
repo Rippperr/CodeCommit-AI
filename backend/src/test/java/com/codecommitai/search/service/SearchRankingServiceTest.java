@@ -15,289 +15,204 @@ class SearchRankingServiceTest {
 
     @BeforeEach
     void setUp() {
-        searchRankingService =
-                new SearchRankingService();
+        searchRankingService = new SearchRankingService();
     }
 
     @Test
     void rank_shouldSortResultsByFinalScoreDescending() {
+        SearchResult lowScore = result(
+                "src/Low.java", 0.20, 0.20, "unrelated content");
+        SearchResult highScore = result(
+                "src/High.java", 0.90, 0.90, "unrelated content");
 
-        SearchResult lowScore =
-                result(
-                        "src/Low.java",
-                        0.20,
-                        0.20,
-                        "unrelated content"
-                );
-
-        SearchResult highScore =
-                result(
-                        "src/High.java",
-                        0.90,
-                        0.90,
-                        "unrelated content"
-                );
-
-        List<SearchResult> results =
-                searchRankingService.rank(
-                        List.of(lowScore, highScore),
-                        "authentication"
-                );
+        List<SearchResult> results = searchRankingService.rank(
+                List.of(lowScore, highScore), "authentication");
 
         assertEquals(2, results.size());
-
-        assertEquals(
-                "src/High.java",
-                results.get(0).filePath()
-        );
-
-        assertEquals(
-                "src/Low.java",
-                results.get(1).filePath()
-        );
-
-        assertTrue(
-                results.get(0).score()
-                        > results.get(1).score()
-        );
+        assertEquals("src/High.java", results.get(0).filePath());
+        assertEquals("src/Low.java", results.get(1).filePath());
+        assertTrue(results.get(0).score() > results.get(1).score());
     }
 
     @Test
     void rank_shouldApplyExactContentMatchBonus() {
+        SearchResult exactMatch = result(
+                "src/AuthService.java", 0.50, 0.50,
+                "authentication service");
+        SearchResult noMatch = result(
+                "src/UserService.java", 0.50, 0.50,
+                "user service");
 
-        SearchResult exactMatch =
-                result(
-                        "src/AuthService.java",
-                        0.50,
-                        0.50,
-                        "authentication service"
-                );
+        List<SearchResult> results = searchRankingService.rank(
+                List.of(noMatch, exactMatch), "authentication");
 
-        SearchResult noMatch =
-                result(
-                        "src/UserService.java",
-                        0.50,
-                        0.50,
-                        "user service"
-                );
-
-        List<SearchResult> results =
-                searchRankingService.rank(
-                        List.of(noMatch, exactMatch),
-                        "authentication"
-                );
-
-        assertEquals(
-                "src/AuthService.java",
-                results.get(0).filePath()
-        );
-
-        assertTrue(
-                results.get(0).score()
-                        > results.get(1).score()
-        );
+        assertEquals("src/AuthService.java", results.get(0).filePath());
+        assertTrue(results.get(0).score() > results.get(1).score());
     }
 
     @Test
     void rank_shouldApplyFilePathMatchBonus() {
+        SearchResult fileMatch = result(
+                "src/authentication/AuthService.java", 0.50, 0.50,
+                "user service");
+        SearchResult noFileMatch = result(
+                "src/user/UserService.java", 0.50, 0.50,
+                "user service");
 
-        SearchResult fileMatch =
-                result(
-                        "src/authentication/AuthService.java",
-                        0.50,
-                        0.50,
-                        "user service"
-                );
-
-        SearchResult noFileMatch =
-                result(
-                        "src/user/UserService.java",
-                        0.50,
-                        0.50,
-                        "user service"
-                );
-
-        List<SearchResult> results =
-                searchRankingService.rank(
-                        List.of(noFileMatch, fileMatch),
-                        "authentication"
-                );
+        List<SearchResult> results = searchRankingService.rank(
+                List.of(noFileMatch, fileMatch), "authentication");
 
         assertEquals(
                 "src/authentication/AuthService.java",
-                results.get(0).filePath()
-        );
-
-        assertTrue(
-                results.get(0).score()
-                        > results.get(1).score()
-        );
+                results.get(0).filePath());
+        assertTrue(results.get(0).score() > results.get(1).score());
     }
 
     @Test
     void rank_shouldRewardRelevantIdentifierInNaturalLanguageQuery() {
+        SearchResult implementation = result(
+                "src/HybridSearchService.java",
+                0.30,
+                0.70,
+                "class HybridSearchService { void mergeResults() {} }");
 
-        SearchResult implementation =
-                result(
-                        "src/HybridSearchService.java",
-                        0.30,
-                        0.70,
-                        "class HybridSearchService { "
-                                + "void mergeResults() {} }"
-                );
+        SearchResult unrelated = result(
+                "src/UserService.java",
+                0.30,
+                0.70,
+                "class UserService { void authenticate() {} }");
 
-        SearchResult unrelated =
-                result(
-                        "src/UserService.java",
-                        0.30,
-                        0.70,
-                        "class UserService { "
-                                + "void authenticate() {} }"
-                );
-
-        List<SearchResult> results =
-                searchRankingService.rank(
-                        List.of(unrelated, implementation),
-                        "Explain exactly how HybridSearchService works "
-                                + "in this repository"
-                );
+        List<SearchResult> results = searchRankingService.rank(
+                List.of(unrelated, implementation),
+                "Explain exactly how HybridSearchService works in this repository");
 
         assertEquals(
                 "src/HybridSearchService.java",
                 results.get(0).filePath(),
-                "The implementation named in the question should rank first"
+                "The implementation named in the question should rank first");
+    }
+
+    @Test
+    void rank_shouldPreferNamedImplementationOverGenericKeywordMatch() {
+        SearchResult genericMatch = result(
+                "src/main/java/com/example/RankingUtils.java",
+                0.50,
+                0.50,
+                "This class explains ranking logic.");
+
+        SearchResult namedImplementation = result(
+                "src/main/java/com/codecommitai/search/service/HybridSearchService.java",
+                0.50,
+                0.50,
+                "This class combines two retrieval strategies.");
+
+        List<SearchResult> results = searchRankingService.rank(
+                List.of(genericMatch, namedImplementation),
+                "Explain how HybridSearchService works, including ranking");
+
+        assertEquals(
+                "src/main/java/com/codecommitai/search/service/HybridSearchService.java",
+                results.get(0).filePath(),
+                "The named implementation should rank above a generic keyword match");
+    }
+
+    @Test
+    void rank_shouldNotGiveNamedIdentifierBonusToTestFile() {
+        String query =
+                "Explain how HybridSearchService works, including ranking";
+
+        SearchResult implementation = result(
+                "backend/src/main/java/com/codecommitai/search/service/HybridSearchService.java",
+                0.50,
+                0.50,
+                "Combines keyword and semantic search.");
+
+        SearchResult testFile = result(
+                "backend/src/test/java/com/codecommitai/search/service/HybridSearchServiceTest.java",
+                0.50,
+                0.50,
+                "Tests keyword and semantic search.");
+
+        List<SearchResult> results = searchRankingService.rank(
+                List.of(testFile, implementation),
+                query
+        );
+
+        assertEquals(
+                "backend/src/main/java/com/codecommitai/search/service/HybridSearchService.java",
+                results.get(0).filePath()
+        );
+
+        assertEquals(
+                0.755,
+                results.get(0).score(),
+                0.000001
+        );
+
+        assertEquals(
+                0.395,
+                results.get(1).score(),
+                0.000001
         );
     }
 
     @Test
     void rank_shouldHandleKeywordOnlyResults() {
+        SearchResult result = result(
+                "src/UserService.java", 0.80, null, "user service");
 
-        SearchResult result =
-                result(
-                        "src/UserService.java",
-                        0.80,
-                        null,
-                        "user service"
-                );
-
-        List<SearchResult> results =
-                searchRankingService.rank(
-                        List.of(result),
-                        "authentication"
-                );
+        List<SearchResult> results = searchRankingService.rank(
+                List.of(result), "authentication");
 
         assertEquals(1, results.size());
-
-        assertEquals(
-                0.36,
-                results.get(0).score(),
-                0.000001
-        );
-
-        assertEquals(
-                0.80,
-                results.get(0).keywordScore()
-        );
-
-        assertNull(
-                results.get(0).semanticScore()
-        );
+        assertEquals(0.36, results.get(0).score(), 0.000001);
+        assertEquals(0.80, results.get(0).keywordScore());
+        assertNull(results.get(0).semanticScore());
     }
 
     @Test
     void rank_shouldHandleSemanticOnlyResults() {
+        SearchResult result = result(
+                "src/UserService.java", null, 0.80, "user service");
 
-        SearchResult result =
-                result(
-                        "src/UserService.java",
-                        null,
-                        0.80,
-                        "user service"
-                );
-
-        List<SearchResult> results =
-                searchRankingService.rank(
-                        List.of(result),
-                        "authentication"
-                );
+        List<SearchResult> results = searchRankingService.rank(
+                List.of(result), "authentication");
 
         assertEquals(1, results.size());
-
-        assertEquals(
-                0.32,
-                results.get(0).score(),
-                0.000001
-        );
-
-        assertNull(
-                results.get(0).keywordScore()
-        );
-
-        assertEquals(
-                0.80,
-                results.get(0).semanticScore()
-        );
+        assertEquals(0.32, results.get(0).score(), 0.000001);
+        assertNull(results.get(0).keywordScore());
+        assertEquals(0.80, results.get(0).semanticScore());
     }
 
     @Test
     void rank_shouldCapScoreAtOne() {
+        SearchResult result = result(
+                "src/authentication.java", 1.0, 1.0, "authentication");
 
-        SearchResult result =
-                result(
-                        "src/authentication.java",
-                        1.0,
-                        1.0,
-                        "authentication"
-                );
+        List<SearchResult> results = searchRankingService.rank(
+                List.of(result), "authentication");
 
-        List<SearchResult> results =
-                searchRankingService.rank(
-                        List.of(result),
-                        "authentication"
-                );
-
-        assertEquals(
-                1.0,
-                results.get(0).score()
-        );
+        assertEquals(1.0, results.get(0).score());
     }
 
     @Test
     void rank_shouldReturnEmptyListForEmptyResults() {
-
-        List<SearchResult> results =
-                searchRankingService.rank(
-                        List.of(),
-                        "authentication"
-                );
+        List<SearchResult> results = searchRankingService.rank(
+                List.of(), "authentication");
 
         assertTrue(results.isEmpty());
     }
 
     @Test
     void rank_shouldRejectBlankQuery() {
+        SearchResult result = result(
+                "src/UserService.java", 0.5, 0.5, "user service");
 
-        SearchResult result =
-                result(
-                        "src/UserService.java",
-                        0.5,
-                        0.5,
-                        "user service"
-                );
+        IllegalArgumentException exception = assertThrows(
+                IllegalArgumentException.class,
+                () -> searchRankingService.rank(List.of(result), "   "));
 
-        IllegalArgumentException exception =
-                assertThrows(
-                        IllegalArgumentException.class,
-                        () -> searchRankingService.rank(
-                                List.of(result),
-                                "   "
-                        )
-                );
-
-        assertEquals(
-                "Search query cannot be blank",
-                exception.getMessage()
-        );
+        assertEquals("Search query cannot be blank", exception.getMessage());
     }
 
     private SearchResult result(
@@ -306,12 +221,9 @@ class SearchRankingServiceTest {
             Double semanticScore,
             String content
     ) {
-
         return new SearchResult(
                 filePath,
-                filePath.substring(
-                        filePath.lastIndexOf('/') + 1
-                ),
+                filePath.substring(filePath.lastIndexOf('/') + 1),
                 0,
                 1,
                 20,

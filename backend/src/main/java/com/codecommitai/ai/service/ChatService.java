@@ -1,9 +1,11 @@
+
 package com.codecommitai.ai.service;
 
 import com.codecommitai.ai.dto.ChatResponse;
 import com.codecommitai.ai.provider.TextGenerationProvider;
 import com.codecommitai.search.dto.SearchResult;
 import com.codecommitai.search.service.HybridSearchService;
+import com.codecommitai.search.service.RelatedChunkService;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
@@ -15,15 +17,18 @@ public class ChatService {
     private static final int SEARCH_LIMIT = 10;
 
     private final HybridSearchService hybridSearchService;
+    private final RelatedChunkService relatedChunkService;
     private final CodebasePromptBuilder promptBuilder;
     private final TextGenerationProvider textGenerationProvider;
 
     public ChatService(
             HybridSearchService hybridSearchService,
+            RelatedChunkService relatedChunkService,
             CodebasePromptBuilder promptBuilder,
             TextGenerationProvider textGenerationProvider
     ) {
         this.hybridSearchService = hybridSearchService;
+        this.relatedChunkService = relatedChunkService;
         this.promptBuilder = promptBuilder;
         this.textGenerationProvider = textGenerationProvider;
     }
@@ -44,17 +49,25 @@ public class ChatService {
             );
         }
 
+        String normalizedQuestion = question.trim();
+
         List<SearchResult> searchResults =
                 hybridSearchService.search(
                         repositoryId,
-                        question.trim(),
+                        normalizedQuestion,
                         SEARCH_LIMIT
+                );
+
+        List<SearchResult> expandedResults =
+                relatedChunkService.expand(
+                        repositoryId,
+                        searchResults
                 );
 
         PromptBuildResult promptBuildResult =
                 promptBuilder.buildPrompt(
-                        question.trim(),
-                        searchResults
+                        normalizedQuestion,
+                        expandedResults
                 );
 
         String answer =

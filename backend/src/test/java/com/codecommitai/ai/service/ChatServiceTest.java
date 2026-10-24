@@ -6,6 +6,7 @@ import com.codecommitai.ai.dto.SourceReference;
 import com.codecommitai.ai.provider.TextGenerationProvider;
 import com.codecommitai.search.dto.SearchResult;
 import com.codecommitai.search.service.HybridSearchService;
+import com.codecommitai.search.service.RelatedChunkService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -25,6 +26,9 @@ class ChatServiceTest {
     private HybridSearchService hybridSearchService;
 
     @Mock
+    private RelatedChunkService relatedChunkService;
+
+    @Mock
     private CodebasePromptBuilder promptBuilder;
 
     @Mock
@@ -36,13 +40,14 @@ class ChatServiceTest {
     void setUp() {
         chatService = new ChatService(
                 hybridSearchService,
+                relatedChunkService,
                 promptBuilder,
                 textGenerationProvider
         );
     }
 
     @Test
-    void chat_shouldRetrieveCodeGenerateAnswerAndReturnSources() {
+    void chat_shouldRetrieveRelatedChunksGenerateAnswerAndReturnSources() {
 
         UUID repositoryId = UUID.randomUUID();
 
@@ -65,8 +70,23 @@ class ChatServiceTest {
                 0.85
         );
 
+        SearchResult relatedResult = new SearchResult(
+                "src/main/java/IndexingService.java",
+                "IndexingService.java",
+                1,
+                26,
+                40,
+                "private void processFiles() {}",
+                0.0,
+                null,
+                null
+        );
+
         List<SearchResult> searchResults =
                 List.of(searchResult);
+
+        List<SearchResult> expandedResults =
+                List.of(searchResult, relatedResult);
 
         List<SourceReference> sources =
                 List.of(
@@ -86,9 +106,14 @@ class ChatServiceTest {
                 10
         )).thenReturn(searchResults);
 
+        when(relatedChunkService.expand(
+                repositoryId,
+                searchResults
+        )).thenReturn(expandedResults);
+
         when(promptBuilder.buildPrompt(
                 question,
-                searchResults
+                expandedResults
         )).thenReturn(promptBuildResult);
 
         when(textGenerationProvider.generateText(prompt))
@@ -125,9 +150,14 @@ class ChatServiceTest {
                 10
         );
 
+        verify(relatedChunkService).expand(
+                repositoryId,
+                searchResults
+        );
+
         verify(promptBuilder).buildPrompt(
                 question,
-                searchResults
+                expandedResults
         );
 
         verify(textGenerationProvider).generateText(prompt);
@@ -154,6 +184,11 @@ class ChatServiceTest {
                 10
         )).thenReturn(List.of());
 
+        when(relatedChunkService.expand(
+                repositoryId,
+                List.of()
+        )).thenReturn(List.of());
+
         when(promptBuilder.buildPrompt(
                 question,
                 List.of()
@@ -172,6 +207,22 @@ class ChatServiceTest {
 
         assertTrue(response.sources().isEmpty());
 
+        verify(hybridSearchService).search(
+                repositoryId,
+                question,
+                10
+        );
+
+        verify(relatedChunkService).expand(
+                repositoryId,
+                List.of()
+        );
+
+        verify(promptBuilder).buildPrompt(
+                question,
+                List.of()
+        );
+
         verify(textGenerationProvider).generateText(prompt);
     }
 
@@ -188,6 +239,7 @@ class ChatServiceTest {
 
         verifyNoInteractions(
                 hybridSearchService,
+                relatedChunkService,
                 promptBuilder,
                 textGenerationProvider
         );
@@ -206,6 +258,7 @@ class ChatServiceTest {
 
         verifyNoInteractions(
                 hybridSearchService,
+                relatedChunkService,
                 promptBuilder,
                 textGenerationProvider
         );

@@ -1,3 +1,4 @@
+
 package com.codecommitai.ai.service;
 
 import com.codecommitai.ai.dto.SourceReference;
@@ -5,15 +6,21 @@ import com.codecommitai.search.dto.SearchResult;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Comparator;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
+import java.util.Set;
 
 @Component
 public class CodebasePromptBuilder {
 
-    private static final int MAX_CONTEXT_CHUNKS = 8;
+    private static final int MAX_CONTEXT_CHUNKS = 12;
     private static final int MAX_CONTEXT_CHARACTERS = 8000;
+    private static final int MAX_CHUNKS_PER_FILE = 3;
 
     public PromptBuildResult buildPrompt(
             String question,
@@ -76,6 +83,11 @@ public class CodebasePromptBuilder {
                             )
                             .toList();
 
+            Map<String, Integer> chunksPerFile = new HashMap<>();
+            Map<String, Integer> lastIncludedEndLine = new HashMap<>();
+            Map<String, List<String>> lastIncludedLines = new HashMap<>();
+            Set<String> includedContent = new HashSet<>();
+
             int totalCharacters = 0;
             int includedChunks = 0;
 
@@ -89,13 +101,62 @@ public class CodebasePromptBuilder {
                         ? "Unknown file"
                         : result.filePath();
 
+                String fileKey =
+                        filePath.replace('\\', '/')
+                                .toLowerCase(Locale.ROOT);
+
+                int fileChunkCount =
+                        chunksPerFile.getOrDefault(fileKey, 0);
+
+                if (fileChunkCount >= MAX_CHUNKS_PER_FILE) {
+                    continue;
+                }
+
+                SourceReference sourceReference =
+                        new SourceReference(
+                                filePath,
+                                result.startLine(),
+                                result.endLine()
+                        );
+
+                String originalContent = result.content();
+
+                // Keep source references for duplicate chunks,
+                // but do not include identical code content twice.
+                if (includedContent.contains(originalContent)) {
+                    if (!includedSources.contains(sourceReference)) {
+                        includedSources.add(sourceReference);
+                    }
+                    continue;
+                }
+
+                String content = removeOverlappingLines(
+                        originalContent,
+                        result.startLine(),
+                        lastIncludedEndLine.get(fileKey),
+                        lastIncludedLines.get(fileKey)
+                );
+
+                if (content.isBlank()) {
+                    if (!includedSources.contains(sourceReference)) {
+                        includedSources.add(sourceReference);
+                    }
+                    continue;
+                }
+
                 int remainingCharacters =
                         MAX_CONTEXT_CHARACTERS - totalCharacters;
 
-                String content = result.content();
+                if (remainingCharacters <= 0) {
+                    break;
+                }
 
                 if (content.length() > remainingCharacters) {
                     content = content.substring(0, remainingCharacters);
+                }
+
+                if (content.isBlank()) {
+                    continue;
                 }
 
                 prompt.append("\n--- SOURCE ")
@@ -116,13 +177,8 @@ public class CodebasePromptBuilder {
                         .append(content)
                         .append("\n");
 
-                includedSources.add(
-                        new SourceReference(
-                                filePath,
-                                result.startLine(),
-                                result.endLine()
-                        )
-                );
+                includedSources.add(sourceReference);
+                includedContent.add(originalContent);
 
                 System.out.printf(
                         "[PROMPT CONTEXT] file=%s, lines=%d-%d, "
@@ -135,6 +191,38 @@ public class CodebasePromptBuilder {
 
                 totalCharacters += content.length();
                 includedChunks++;
+
+                chunksPerFile.put(
+                        fileKey,
+                        fileChunkCount + 1
+                );
+
+                lastIncludedEndLine.put(
+                        fileKey,
+                        Math.max(
+                                lastIncludedEndLine.getOrDefault(
+                                        fileKey,
+                                        0
+                                ),
+                                result.endLine()
+                        )
+                );
+
+                /*
+                 * Important:
+                 * Track the ORIGINAL chunk content against its original
+                 * source line numbers. The displayed content may have
+                 * overlapping lines removed, but its source positions
+                 * must remain unchanged for subsequent comparisons.
+                 */
+                lastIncludedLines.put(
+                        fileKey,
+                        getLinesThroughEndLine(
+                                originalContent,
+                                result.startLine(),
+                                result.endLine()
+                        )
+                );
             }
 
             if (includedChunks == 0) {
@@ -157,6 +245,106 @@ public class CodebasePromptBuilder {
                 prompt.toString(),
                 includedSources
         );
+    }
+
+    private String removeOverlappingLines(
+            String content,
+            Integer startLine,
+            Integer lastIncludedEndLine,
+            List<String> previousLines
+    ) {
+        if (content == null || content.isBlank()
+                || startLine == null
+                || lastIncludedEndLine == null
+                || previousLines == null
+                || startLine > lastIncludedEndLine) {
+            return content == null ? "" : content;
+        }
+
+        String[] currentLines = content.split("\\R", -1);
+
+        int overlapCount = Math.min(
+                lastIncludedEndLine - startLine + 1,
+                currentLines.length
+        );
+
+        // Remove leading lines only when they match the same source
+        // line positions in the previously processed chunk.
+        int matchingLines = 0;
+
+        while (matchingLines < overlapCount
+                && matchingLines < previousLines.size()) {
+
+            int sourceLine = startLine + matchingLines;
+            int previousIndex = sourceLine - 1;
+
+            if (previousIndex < 0
+                    || previousIndex >= previousLines.size()) {
+                break;
+            }
+
+            if (!currentLines[matchingLines].equals(
+                    previousLines.get(previousIndex))) {
+                break;
+            }
+
+            matchingLines++;
+        }
+
+        if (matchingLines == 0) {
+            return content;
+        }
+
+        if (matchingLines >= currentLines.length) {
+            return "";
+        }
+
+        return String.join(
+                System.lineSeparator(),
+                Arrays.copyOfRange(
+                        currentLines,
+                        matchingLines,
+                        currentLines.length
+                )
+        );
+    }
+
+    private List<String> getLinesThroughEndLine(
+            String content,
+            Integer startLine,
+            Integer endLine
+    ) {
+        if (content == null
+                || startLine == null
+                || endLine == null
+                || startLine < 1
+                || endLine < startLine) {
+            return List.of();
+        }
+
+        List<String> lines = content.lines().toList();
+
+        List<String> sourceLines = new ArrayList<>(
+                java.util.Collections.nCopies(
+                        endLine,
+                        ""
+                )
+        );
+
+        int expectedLineCount = endLine - startLine + 1;
+
+        for (int i = 0;
+                i < lines.size() && i < expectedLineCount;
+                i++) {
+
+            int sourceIndex = startLine - 1 + i;
+
+            if (sourceIndex >= 0 && sourceIndex < sourceLines.size()) {
+                sourceLines.set(sourceIndex, lines.get(i));
+            }
+        }
+
+        return sourceLines;
     }
 
     private boolean isTestFile(SearchResult result) {

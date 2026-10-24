@@ -1,3 +1,4 @@
+
 package com.codecommitai.codechunk.repository;
 
 import com.codecommitai.codechunk.entity.CodeChunk;
@@ -11,6 +12,12 @@ public interface CodeChunkRepository
 
     List<CodeChunk> findAllByRepositoryFileIdOrderByChunkIndex(
             UUID repositoryFileId
+    );
+
+    List<CodeChunk> findAllByRepositoryFileIdAndChunkIndexBetweenOrderByChunkIndex(
+            UUID repositoryFileId,
+            Integer startChunkIndex,
+            Integer endChunkIndex
     );
 
     List<CodeChunk> findAllByRepositoryFileRepositoryId(
